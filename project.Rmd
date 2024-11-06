@@ -1,0 +1,373 @@
+---
+title: "MS-E2112 Project: Online chess"
+author: "Anni Niskanen"
+output:
+  bookdown::pdf_document2:
+    extra_dependencies: ["float"]
+    latex_engine: xelatex
+    number_sections: no
+    toc: true
+header-includes:
+- \usepackage[width=\textwidth]{caption}
+---
+
+\fontsize{11}{14}
+\selectfont
+
+\newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+
+# 1 Introduction
+
+Chess is a complex game of strategy, and surely a multitude of variables, both in-game and out-of-game, determines the result of a game. In this project I set out to examine the relation between certain variables that can be recorded from a single game of chess. In particular, I will examine which variables affect the result of the game the most, or whether any such variables can be identified at all. Secondly, the relation between the length of the game and the two players' ratings is of interest to me. Lastly, I seek to answer the question of how often players play with someone of a similar rating, i.e. the relation between the two players' ratings.
+
+The dataset I utilised in this project was and can be obtained from Kaggle [1], an online site with a variety of datasets. The dataset contains information of over 20,000 online chess games played on the online chess site lichess.org. The variables recorded in the dataset will be introduced in more detail in chapter 2. Because of the nature of my research questions and the categorical nature of some of the variables in the dataset, I plan to apply multiple correspondence analysis (MCA) on the data to conduct my research. MCA will be introduced and conducted in chapter 4.
+
+
+
+# 2 Univariate analysis
+
+## 2.1 Description of the variables
+
+The chess dataset from [1] contains values of 16 variables from 20,058 online chess games on the site lichess.org. 6 of the 16 available variables were chosen to be analysed. These variables are introduced in table @ref(tab:tablevars) below.
+
+```{r tablevars}
+vars <- read.csv("variables.csv")
+colnames(vars) <- c("Variable", colnames(vars)[2:4])
+
+library(flextable)
+set_flextable_defaults(font.size = 9)
+ft <- flextable(vars)
+ft <- set_caption(ft, "The chosen variables, their types, categories and short description of them.")
+ft <- theme_box(ft)
+ft <- set_table_properties(ft, layout = "autofit")
+ft
+```
+
+Note that variable time was obtained by modifying variable increment\_code of the original dataset. Variable increment\_code contains the amount of time in minutes given for each player to make their moves (A) and the time increment in seconds rewarded for the player for each move (B) in format "A+B". The "+B" part was simply omitted in order to acquire the new variable time.
+
+```{r}
+# Read .csv file and remove extra variables
+chess <- read.csv("games.csv")
+chess <- chess[,c(2, 5, 7, 8, 10, 12)]
+
+# Alter increment variable to include only "length of the game"
+names(chess)[names(chess) == "increment_code"] <- "time"
+replace <- function(str) strtoi(strsplit(str, split = "\\+")[[1]][1])
+chess$time <- sapply(chess$time, replace)
+
+# Change rated variable to contain only two modalities (now there's four for some reason)
+chess$rated[chess$rated == "TRUE"] = "True"
+chess$rated[chess$rated == "FALSE"] = "False"
+```
+
+## 2.2 Summary statistics
+
+Next I calculated some summary statistics for the 6 variables. Summary statistics for the numerical variables are presented in table @ref(tab:tablesummary1). Because of their categorical nature, only the relative frequencies of variables rated and winner are presented in tables @ref(tab:tablesummary2) and @ref(tab:tablesummary3).
+
+```{r tablesummary1}
+# For numerical variables
+
+# First create mean, std, min, max
+summary_table <- psych::describe(chess[, c(-1, -3)], fast = TRUE)
+summary_table <- summary_table[, c(-1, -2, -7, -8)]
+
+# Then calculate and add median and mode
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+medians <- data.frame(lapply(chess[, c(-1, -3)], median))
+modes <- data.frame(lapply(chess[, c(-1, -3)], Mode))
+
+summary_table$median <- t(medians)
+summary_table$mode <- t(modes)
+
+# Rearrange table
+summary_table <- round(summary_table, 2)
+summary_table <- summary_table[, c(1, 5, 6, 3, 4, 2)]
+summary_table <- cbind(rownames(summary_table), data.frame(summary_table, row.names=NULL))
+colnames(summary_table)[1] <- "variable"
+
+# Show table
+ft <- flextable(summary_table)
+ft <- set_caption(ft, "Summary statistics for the chosen numerical variables.")
+ft <- theme_box(ft)
+ft <- set_table_properties(ft, layout = "autofit")
+ft
+```
+
+```{r tablesummary2}
+# For rated variable
+summary_table2 <- table(chess$rated) / sum(table(chess$rated))
+summary_table2 <- round(summary_table2, 2)
+summary_table2 <- data.frame(summary_table2[c(2, 1)])
+colnames(summary_table2) <- c("Modality", "Frequency")
+
+ft <- flextable(summary_table2)
+ft <- set_caption(ft, "Relative frequencies for the modalities of the rated variable.")
+ft <- theme_box(ft)
+ft <- set_table_properties(ft, layout = "autofit")
+ft
+```
+
+```{r tablesummary3}
+# For winner variable
+summary_table3 <- table(chess$winner) / sum(table(chess$winner))
+summary_table3 <- round(summary_table3, 2)
+summary_table3 <- data.frame(summary_table3[c(3, 1, 2)])
+colnames(summary_table3) <- c("Modality", "Frequency")
+
+ft <- flextable(summary_table3)
+ft <- set_caption(ft, "Relative frequencies for the modalities of the winner variable.")
+ft <- theme_box(ft)
+ft <- set_table_properties(ft, layout = "autofit")
+ft
+```
+
+## 2.3 Visualisation and categorisation
+
+Before MCA is applied to the dataset, the numerical variables of the data - namely turns, time, white\_rating and black\_rating - should be categorised. Histograms of the original numerical data of these variables are plotted in figure @ref(fig:hist1)a. Frequencies of the two already categorical variables, rated and winner, are plotted in figure @ref(fig:bar1).
+
+```{r bar1, fig.cap = "Frequencies of variables rated and winner.", fig.dim = c(4.5, 3)}
+# Barplots
+layout(matrix(c(1, 2), 1, 2, byrow = TRUE))
+barplot(table(chess$rated)[c(2, 1)], col = "seagreen", main = "rated")
+barplot(table(chess$winner)[c(3, 1, 2)], col = "seagreen2", main = "winner")
+```
+
+MCA is most accurate when there are roughly the same number of modalities for each variable. Obtaining rare modalities should also be avoided when determining the categories. For example, a value higher than 50 for variable time is very rare, so determining a category of time $> 50$ would be unwise. The variables were categorised based on this knowledge of MCA, the histograms in figure @ref(fig:hist1)a, my own intuition, and lastly some simple trial and error. The categorisation is presented in figure @ref(fig:hist1)b and justified further in appendix A.
+
+```{r hist1, fig.cap="Frequencies of the original and categorised variables turns, time and white_rating. Variable black_rating is omitted because its distribution is very similar to variable white_rating.", fig.dim = c(11, 7)}
+
+# Original histograms, these should help with choosing the categories
+layout(matrix(c(1, 2, 3, 4, 5, 6), 2, 3, byrow = TRUE))
+hist(chess$turns, col = "gold", main = "turns", xlab = "turns", ylab = "")
+hist(chess$time, col = "royalblue4", main = "time", xlab = "time", ylab = "")
+hist(chess$white_rating, col = "maroon4", main = "white_rating", xlab = "white_rating", ylab = "")
+
+# Let's categorise our numerical variables
+chess$turns[chess$turns %in% c(1:30)] = "1-30"
+chess$turns[chess$turns %in% c(31:60)] = "31-60"
+chess$turns[chess$turns %in% c(61:90)] = "61-90"
+chess$turns[chess$turns %in% c(91:400)] = ">90"
+
+chess$time[chess$time %in% c(0:5)] = "fast"
+chess$time[chess$time %in% c(6:14)] = "normal"
+chess$time[chess$time %in% c(15:200)] = "slow"
+
+chess$white_rating[chess$white_rating %in% c(0:1199)] = "novice"
+chess$white_rating[chess$white_rating %in% c(1200:1499)] = "okay"
+chess$white_rating[chess$white_rating %in% c(1500:1799)] = "good"
+chess$white_rating[chess$white_rating %in% c(1800:4000)] = "great"
+
+chess$black_rating[chess$black_rating %in% c(0:1199)] = "novice"
+chess$black_rating[chess$black_rating %in% c(1200:1499)] = "okay"
+chess$black_rating[chess$black_rating %in% c(1500:1799)] = "good"
+chess$black_rating[chess$black_rating %in% c(1800:4000)] = "great"
+
+# Let's check if the categorised variables look reasonable --> barplots
+barplot(table(chess$turns)[c(2, 3, 4, 1)], col = "gold", main = "turns")
+barplot(table(chess$time), col = "royalblue4", main = "time")
+barplot(table(chess$white_rating)[c(3, 4, 1, 2)], col = "maroon4", main = "white_rating")
+```
+
+
+
+# 3 Bivariate analysis
+
+For categorical variables, it is easiest to model the dependencies between the modalities of the variables. Attraction repulsion indices represent these dependencies. An index higher than 1 indicates attraction and an index below 1 repulsion, and an index close to 1 indicates independence of the two modalities. A heatmap of the attraction repulsion indices of the data is presented in figure @ref(fig:heatmap).
+
+```{r}
+# Do MCA here because it returns the complete disjunctive table of the data
+mca <- ca::mjca(chess, lambda = "indicator", reti = TRUE)
+
+# Calculate attraction repulsion indices
+indmat <- mca$indmat   # complete disjunctive table
+indmat <- indmat[, c(2, 1, 4:6, 3, 9, 7, 8, 10:12, 15, 16, 13, 14, 19, 20, 17, 18)]
+n_pl <- colSums(indmat)
+n <- nrow(chess)
+
+# Create empty 20x20 matrix (or whatever the total number of modalities is)
+attr_rep_ind <- matrix(nrow = ncol(indmat), ncol = ncol(indmat))
+
+# Fill matrix
+for (i in 1:ncol(indmat)) {
+  for (j in 1:ncol(indmat)) {
+    n_both = sum((indmat[,i] + indmat[,j]) == 2)
+    attr_rep_ind[i, j] = n_both / ((n_pl[i] * n_pl[j]) / n)
+  }
+}
+
+# Rename rows and columns of attraction repulsion matrix
+colnames(attr_rep_ind) <- colnames(indmat)
+rownames(attr_rep_ind) <- colnames(indmat)
+```
+
+```{r heatmap, fig.cap="A heatmap of the attraction repulsion indices of the data. Attraction repulsion indices higher than 2.0 were reduced to 2.0 in order to keep the color scale clear and meaningful."}
+library(ggplot2)
+library(reshape2)
+
+lims = c(0.0, 2.0)
+attr_rep_ind[attr_rep_ind < lims[1]] = lims[1]
+attr_rep_ind[attr_rep_ind > lims[2]] = lims[2]
+
+melted <- melt(attr_rep_ind, varnames = c("mod1", "mod2"), value.name = "ar")
+
+ggplot(melted, aes(x = mod1, y = mod2, fill = ar)) + geom_tile() +
+  scale_fill_gradient2(low = "navyblue", high = "orangered1", mid = "white",
+  midpoint = 1.0, limits = lims, name = "AR index") +
+  coord_fixed(ratio = 1) + labs(x = "Modality 1", y = "Modality 2") +
+  theme(axis.text.x = element_text(angle = 50, size = 8, vjust = 1, hjust = 1),
+        axis.text.y = element_text(size = 8), panel.background = element_blank())
+```
+
+It should be noted that the exceptionally high diagonal values (attraction repulsion indices of the modalities in regard to themselves) in the heatmap are irrelevant, as are the low values between "competing" modalities (such as the True and False modalities of variable rated which logically preclude each other, and therefore their attraction repulsion index is always $0.0$).
+
+Quite a lot of interesting dependencies can be seen from the heatmap. Because of the nature of MCA, the analysis on the results of MCA in chapter 4 will present a lot of the observations that could be presented based on the heatmap alone. Therefore I will keep the analysis on the heatmap brief here and only focus on my first research question: which variables affect the result of the game the most. The heatmap shows an attraction between a high rating of a player and that player winning the game, and an even stronger repulsion for a low rating of a player and that player winning the game. A similar phenomenon is seen for the second player: a low rating of the second player attracts the first player winning and vice versa. This dependency, a high rating of a player attracting the modality of that player winning, is quite simple and logical. The dependencies of the draw modality are more interesting. It can be seen that the >90 modality of variable turns is very strongly attracted to the draw modality, while other modalities of variable turns, especially 31-60, are repulsed by it. Moreover, high ratings of both players attract the draw modality, while low ratings repulse it. This indicates that games which have been played for over 90 turns by skilled players are quite likely to end in a draw, while a shorter game by two inexperienced players will likely be one by one of them.
+
+
+
+# 4 Multivariate analysis
+
+## 4.1 Introduction of the method
+
+Multiple correlation analysis (MCA) aims to produce a graphical display of associations between the modalities of the variables in a lower dimension, without losing too much information provided by the attraction repulsion indices. That is to say, MCA is in a sense a graphical representation of the attraction repulsion indices: it can summarise attractions and repulsions of the modalities in a single graph. This makes MCA ideal for my research questions. Additionally, because MCA can be conducted only for categorical variables, it is suitable for the chess dataset I have chosen for this project.
+
+## 4.2 Implementation
+
+In this project MCA was implemented in R with the \texttt{mjca} function of the \texttt{ca} package. The variation of MCA where correspondence analysis (CA) is applied to the complete disjunctive table was implemented by setting the parameter \texttt{lambda = "indicator"}.
+
+```{r}
+# MCA was conducted before already, but here is the implementation
+# mca <- ca::mjca(chess, lambda = "indicator")
+```
+
+## 4.3 Results and their interpretation
+
+```{r components, fig.cap="A plot summarising the obtained components and the percentage of variance in the data they explain.", fig.dim = c(5.5, 3.5)}
+s <- summary(mca)
+
+bar <- barplot(s$scree[, 3], ylim = c(0, 15), names.arg = paste("PC", 1:14), las = 2, xlab = "Component", ylab = "% of variation explained", col="firebrick1")
+text(bar, s$scree[, 3] + 1.0, labels = s$scree[, 3], cex = 0.8)
+```
+
+Figure @ref(fig:components) summarises the components obtained with MCA. It shows that the first two components together explain only `r s$scree[2, 4]`\% of the total variance in the data. Nonetheless, in order to obtain a 2-dimensional graphical representation of our data, only the first two components will be analysed. The scores for the modalities in the first two dimensions are plotted in figures @ref(fig:mca1), @ref(fig:mca2) and @ref(fig:mca3) below. Because there are 20 modalities in total, only subsets including the relevant modalities are plotted for each research question. Relevance is determined by examining figure @ref(fig:heatmap) and choosing only attracting and repelling modalities. In order to check whether the modalities are represented well in these first two dimensions, instead of arrows we plot points representing qualities of representation of the modalities, i.e. how well the modality is represented by the two first components.
+
+```{r}
+# Basic plot command
+# plot(mca, arrows = c(TRUE, TRUE))
+
+# Function for scaling values from 0 to 1 (this is for visualization purposes):
+normalize <- function(x) {
+  (x - min(x)) / (max(x) - min(x))
+}
+
+# Generate the scatter plot. Point size is now scaled according to qlt:
+plot_mca <- function(vec) {
+  qlt <- s$columns[, 3]
+  covariates <- mca$colpcoord[vec, 1:2]
+  plot(covariates, pch = 21,
+       bg = "red", cex = normalize(qlt) + 1,
+       xlab = paste0("Dimension 1", " (", s$scree[1, 3], "%", ")"),
+       ylab = paste0("Dimension 2", " (", s$scree[2, 3], "%", ")"))
+  
+  # Add arrows. Slight transparency is added to increase visibility.
+  arrows(rep(0, 20), rep(0, 20), covariates[, 1], covariates[, 2],
+         length = 0, col = rgb(1, 0, 0, 0.25))
+  
+  # "Cross-hair" is added, i.e., dotted lines crossing x and y axis at 0.
+  abline(h = 0, v = 0, lty = 3)
+  
+  # Add variable:category names to the plot.
+  #text(covariates, mca$levelnames[i:j], pos = 2, cex = 0.75)
+  basicPlotteR::addTextLabels(covariates[,1], covariates[,2], labels = mca$levelnames[vec], col.label = "black", cex.label = 0.8, lty = 1, cex.pt = 1)
+}
+```
+
+```{r mca1, fig.cap="The MCA scores related to the research question 'Which variables affect the result of the game the most?', focusing on the games where either the black or white player won.", fig.dim = c(7, 4.5)}
+# Which variables affect the result of the game the most?
+plot_mca(c(7, 9, 14:16, 18:20))
+```
+
+Figure @ref(fig:mca1) examines the relation between the result of the game and player ratings when one of the players wins the game (i.e. the game does not end in a draw). Unfortunately, even though the heatmap in figure @ref(fig:heatmap) showed dependencies between player ratings and the result of the game, those dependencies are not visible here. It is likely that the relation between the result of the game and player ratings is overshadowed by the very strong relation between the player ratings themselves, and therefore MCA cannot create a meaningful graphical representation here.
+  
+```{r mca2, fig.cap="The MCA scores related to the research question 'Which variables affect the result of the game the most?', focusing on the games which ended in a draw.", fig.dim = c(6.5, 4.5)}
+# Which variables affect the result of the game the most?
+plot_mca(c(1:6, 8, 10:12, 14, 18))
+```
+
+Figure @ref(fig:mca2) describes the relation between various modalities considered possibly impactful for the draw modality and the draw modality itself. Inspecting the games which ended in a draw in such a way provides more interesting results than figure @ref(fig:mca1). As the heatmap indicated, players with high ratings are more likely to play games ending in a draw. It can also be seen that longer games of over 60 turns are more likely to end in a draw, while shorter games repel this modality. Interestingly, the graph completely disagrees with the heatmap on the relation between draws and non-rated games: while the heatmap indicates the two modalities attract each other, according to the graph there is a strong repulsion between them. Lastly, one can see that fast games are less likely to end in draws.
+
+```{r mca3, fig.cap="The MCA scores related to the research questions 'What is the relation between the length of the game and the two players' ratings?' and 'How often do players play with someone of a similar rating?'.", fig.dim = c(6.5, 4.5)}
+# What is the relation between the length of the game and the two players' ratings?
+# How often do players play with someone of a similar rating?
+plot_mca(c(3:6, 10:12, 13:20))
+```
+
+Figure @ref(fig:mca3) aims to help answer the other two research questions. Starting with the second question: The length of a chess game can mean many things. Here it means both the number of turns in the game and the time the players were given to think of their moves in the game. From the graph one can see that players with high ratings seem to be more likely to play longer games with more than 60 turns and normal timing, while novice and okay players will likely play games which end in 1-30 turns and give more time for the player to think.
+
+Figure @ref(fig:mca3) is also useful for answering our last research question, how often do players play with someone of a similar rating. The simple answer is very, very often. Okay and novice players are somewhat likely to play with each other, but the better the player is, the more likely they are to play with someone of a similar rating.
+
+
+
+# 5 Conclusions
+
+The variables utilised in this analysis were clearly inadequate to explain which conditions lead to either the black or the white player winning the game. As suspected at the start of the project, the matter is too complicated for just a few variables to explain. However, the results do indicate that some of the simple chosen variables can predict if the game will end in a draw. Interesting relations between player ratings and the length of the game, both in terms of number of turns and the time given for the players to think, were also identified, as well as a clear positive correlation between the ratings of the two players. Altogether, skilled players tend to play normal-paced games with quite a lot of turns with each other, and these games tend to end in a draw. Shorter games, more likely to be played by inexperienced players, are slower-paced and end in fewer turns. Players rarely play with someone with a drastically different rating, likely due to the nature of online chess: instead of playing with friends for fun (perhaps more likely leading to a game of two players with drastically different ratings), players will be matched with someone of a similar rating. Novice and okay players seem to be an exception, mixing and playing together to some extent.
+
+Some properties of the utilised chess dataset could have affected the obtained results. First of all, the dataset contains multiple games played by the same players, and therefore the chess games, or samples, are not fully indepedent. Additionally, while the time variable gives some indication to the length of the game, the actual game time was left unexplored in this analysis. Examining the relation between the two - theoretical maximum game time and actual game time - could also be interesting. Furthermore, I believe in online chess a player is more likely to run out of time not because of lack of skill, but by accident, resulting in a loss. Therefore in this dataset a player winning a game cannot automatically be considered a show of that player's skill. Lastly, it should be noted that the results obtained from this analysis should not be generalised to real-life chess.
+
+The conducted analysis with MCA was far from ideal. The first two components analysed explain only around $22\%$ of the variation in the data, and the quality of representation was not too high for most modalities, as can be seen from the points in the graphs. Additionally, the components (not only the first two, but also all the rest!) seemed to mostly focus on the very strong dependency between player ratings, and all other relations between modalities are overshadowed by this. Therefore, the analysis could perhaps be repeated without the variables describing player ratings. Nonetheless, this project was an interesting case study of what happens when very strong dependencies are present in the data, and some interesting dependencies between modalities were still identified - although they should not be accepted blindly.
+
+
+
+\newpage
+
+# 6 References
+
+[1] Kaggle. Chess game dataset (Lichess) [Internet]. 2017. Available from: https://www.kaggle.com/datasnaek/chess
+
+
+
+\newpage
+
+# Appendix A: Categorising the variables
+
+Variables turns, time, white\_rating and black\_rating were categorised as seen in tables @ref(tab:catturns), @ref(tab:cattime) and @ref(tab:catratings). The new names given to categories of variables time, white\_rating and black\_rating are presented as well.
+
+```{r catturns}
+cat_turns <- read.csv("categories_turns.csv")
+colnames(cat_turns) <- c("interval")
+
+ft <- flextable(cat_turns)
+ft <- set_caption(ft, "The intervals utilised to categorise variable turns. As the average number of turns in this data is around 60, it seemed appropriate to use that value as a middle point, with two categories above and two below it.")
+ft <- theme_box(ft)
+ft <- set_table_properties(ft, layout = "autofit")
+ft
+```
+
+```{r cattime}
+cat_time <- read.csv("categories_time.csv")
+colnames(cat_time) <- c("interval", "category name")
+
+ft <- flextable(cat_time)
+ft <- set_caption(ft, "The intervals utilised to categorise variable time and the corresponding category names. Note that variable time represents the amount of time in minutes that **one** player is given to make their moves.")
+ft <- theme_box(ft)
+ft <- set_table_properties(ft, layout = "autofit")
+ft
+```
+
+```{r catratings}
+cat_rating <- read.csv("categories_rating.csv")
+colnames(cat_rating) <- c("interval", "category name")
+
+ft <- flextable(cat_rating)
+ft <- set_caption(ft, "The intervals utilised to categorise variables white_rating and black_rating and the corresponding category names. Note that on lichess.org, a player's rating starts at 1500 and can then either improve or deteriorate depending on the results of the games they play. Therefore it seemed appropriate to choose 1500 as the middle point, with two categories above and two below it.")
+ft <- theme_box(ft)
+ft <- set_table_properties(ft, layout = "autofit")
+ft
+```

@@ -1,0 +1,5 @@
+﻿interval,category name
+<1200,novice
+1200-1499,okay
+1500-1799,good
+>=1800,great

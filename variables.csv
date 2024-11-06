@@ -1,0 +1,7 @@
+﻿Variable,Type,Categories,Description
+rated,categorical,"True, False",whether the game was rated or not
+turns,integer,,number of turns in the game
+winner,categorical,"white, black, draw",winner/result of the game
+time,integer,,amount of time in minutes given for each player to make their moves
+white_rating,integer,,the white player's rating
+black_rating,integer,,the black player's rating

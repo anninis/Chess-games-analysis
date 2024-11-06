@@ -1,0 +1,4 @@
+﻿interval,category name
+0-5,fast
+6-14,normal
+>=15,slow
